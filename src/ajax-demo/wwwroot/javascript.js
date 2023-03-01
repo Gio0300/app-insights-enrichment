@@ -1,4 +1,4 @@
-function appInsightsInit(sdk){
+function appInsightsInit(sdk) {
     //*************************************************************************
     // Application Insights callbacks are called in the following order:
     //
@@ -14,10 +14,10 @@ function appInsightsInit(sdk){
     sdk.addDependencyListener((dependencyDetails) => {
         // add a custom function to the dependency context that we can interrogate after the dependency is completed.
         dependencyDetails.context.isAborted = () => {
-            if(dependencyDetails.xhr !== undefined){
+            if (dependencyDetails.xhr !== undefined) {
                 return (dependencyDetails.xhr.ajaxData.aborted == 1);
             }
-            if(dependencyDetails.init !== undefined){
+            if (dependencyDetails.init !== undefined) {
                 return dependencyDetails.init.signal?.aborted;
             }
             return false;
@@ -27,17 +27,17 @@ function appInsightsInit(sdk){
     // addDependencyInitializer is called after the dependency is called from the browser but before the telemetry is packaged up to be sent to Application Insights
     sdk.addDependencyInitializer((dependencyDetails) => {
         // bubble up the isAborted function from the dependency callbacks to the telemetry callbacks. Here the item property represents the baseData property of the telemetry envelope (see the Telemetry Initializer)
-	    // so we pass bubble up our custom function so we can execute the function during addTelemetryInitializer.
+        // so we bubble up our custom function so we can execute the function during addTelemetryInitializer.
         dependencyDetails.item.isAborted = dependencyDetails.context.isAborted;
     });
 
     // addTelemetryInitializer is called before the telemetry data is sent to Application Insights, last chance to enrich the telemetry data
     sdk.addTelemetryInitializer((envelope) => {
-        if(envelope.baseData.responseCode == 0 && typeof envelope.baseData.isAborted === 'function'){
+        if (envelope.baseData.responseCode == 0 && typeof envelope.baseData.isAborted === 'function') {
             //enrich the telemetry data with the aborted property
             envelope.data.aborted = envelope.baseData.isAborted();
             //optionally add your own custom response code to easily distinguish between request aborted by the client and other reasons for why the request failed.
-            if(envelope.data.aborted){
+            if (envelope.data.aborted) {
                 envelope.baseData.responseCode = 299; //299 is an arbitrary response code. Feel free to chose a response code that better suits your needs.
                 envelope.baseData.success = true;
             }
@@ -46,8 +46,8 @@ function appInsightsInit(sdk){
     });
 }
 
-document.addEventListener("DOMContentLoaded", (event) => { 
-    
+document.addEventListener("DOMContentLoaded", (event) => {
+
     let btnSuccessfulXHR = document.getElementById('btnSuccessfulXHR');
     btnSuccessfulXHR.addEventListener('click', async () => {
         const xhr = new XMLHttpRequest();
@@ -76,33 +76,33 @@ document.addEventListener("DOMContentLoaded", (event) => {
         xhr.send();
     });
 
-    
+
     let btnSuccessfulFetch = document.getElementById('btnSuccessfulFetch');
     btnSuccessfulFetch.addEventListener('click', async () => {
         await fetch('/Delay?delayInSeconds=3')
-        .then((response) => response.json())
-        .then((data) => console.log(data));
+            .then((response) => response.json())
+            .then((data) => console.log(data));
     });
 
-    
+
     let btnClientAbortFetch = document.getElementById('btnClientAbortFetch');
     btnClientAbortFetch.addEventListener('click', async () => {
         let abortController = new AbortController();
         // abort the call before it's completed at the server
         setTimeout(() => abortController.abort(), 1500); //abort in 1.5 seconds
-        
+
         await fetch('/Delay?delayInSeconds=3', {
             signal: abortController.signal
         })
-        .then((response) => response.json())
-        .then((data) => console.log(data));
+            .then((response) => response.json())
+            .then((data) => console.log(data));
     });
 
-    
+
     let btnUndefinedResponseFetch = document.getElementById('btnUndefinedResponseFetch');
     btnUndefinedResponseFetch.addEventListener('click', async () => {
         await fetch('/Abort?delayInSeconds=3')
-        .then((response) => response.json())
-        .then((data) => console.log(data));
+            .then((response) => response.json())
+            .then((data) => console.log(data));
     });
 });

@@ -1,22 +1,24 @@
-# Making Application Insights even more insightful with telemetry enrichment
-Application Insights offers a tremendous amount of observability with minimal configuration. The library of SDKs and collection agents truly do a wonderful job straight out of the box. However, they cannot account for every possible scenario. Some times we need more context-specific information for a crucial insight. This is where telemetry enrichment comes into play. In this article we will explore a real world scenario where we used telemetry enrichment to provide that necessary insight.
+# Making Azure Monitor even more insightful with telemetry enrichment
+Azure Monitor offers a tremendous amount of observability with minimal configuration. The Azure Monitor Agent and Application Insights SDKs truly do a wonderful job straight out of the box. However, they cannot account for every possible scenario. Some times we need more context-specific information for a crucial insight. This is where telemetry enrichment comes into play. In this article we will explore a real world scenario where we used telemetry enrichment to provide that necessary insight.
 
-Let me provide some context before we go further. Our application is a single page web app supported by a BFF, both of which are instrumented with the Application Insights SDK for their respective platform. Application Insights has built-in dashboards that provide various perspectives on the health of our app, we will be focusing on the failures dashboard. The failures dashboard is organized around two major perspectives, server side failures and client side failures.
+Let me provide some context before we go further. Our application is a single page web app supported by a BFF (backend for frontend), both of which are instrumented with the Application Insights SDK for their respective platform. 
+
+Application Insights has built-in dashboards that provide various perspectives on the health of our app, we will be focusing on the failures dashboard. The failures dashboard is organized around two major perspectives, server side failures and client side failures.
 
 ## Here's our dilemma
-The server side telemetry is painting a mostly unremarkable picture, there are some exceptions but nothing is raising red flags. The client side is a different story. A very large number of request are shown as failures with a result* code of 0 (zero). Wait a tick... result code 0? We were expecting to see HTTP 400 and 500 codes. What does result code 0 mean?
+The server side telemetry is painting a mostly unremarkable picture, there are some exceptions but nothing too concerning. The client side is a different story. A very large number of request are shown as failures with a result* code of 0 (zero). Wait a tick... result code 0? We were expecting to see HTTP 400 and 500 codes. What does result code 0 mean?
 
-> \* In Application Insights you will find a field called Re**sult** Code instead of Res**ponse** Code. This is because Application Insights tracks more than just HTTP dependencies, so you may see non-HTTP codes in the logs if your application has other types of dependencies. In our case we were dealing with HTTP traffic so a code of 0 was not something we were expecting.
+> \* In the Application Insights portal you will find a field called Re**sult** Code instead of Res**ponse** Code. This is because Application Insights tracks more than just HTTP dependencies, so you may see non-HTTP codes in the logs. In this instance we were dealing with HTTP traffic so a code of 0 was not something we were expecting.
 
 ## Result code 0
-Most of us are familiar with the common HTTP response status codes. 200 OK, 301 Redirect, 404 Not-Found, etc... but have you encountered response code 0 (zero). In case you haven't, let me explain what it's all about.
+Most of us are familiar with the common HTTP response status codes: 200 OK, 301 Redirect, 404 Not-Found, etc. But have you ever encountered response code 0 (zero)? In case you haven't, let me explain what it's all about.
 
 When we think of HTTP response status codes we take it for granted that the server received the request from the client and subsequently, that the response from the server made it back to the client. But what happens when the client doesn't hear back from the server in a timely fashion, or perhaps the client aborts a request that is no longer needed? We'll refer to these scenarios as fragmented HTTP request and response pairs or 'fragmented pairs' for short.
 
 ![Normal HTTP Request and Response Pair | Fragmented Pair](screenshots/http_request_response.png)
 
 ### Fragmented Pairs - Undefined response and aborted requests
-The fragmented pair scenarios can be grouped into two broad categories. The first category encompasses circumstances like network partition, back-end service disruption, a busy server, the intern tripped over the power cable, etc... In these circumstances the client has no way of knowing if the server was able to send a response, and if so, did the response get lost on the way to the client. In other words, the client can't tell the difference between the server crashing (no response was ever sent) and the server responding but the response that was lost due to a network issue. From the client's perspective the response is **undefined**.
+The fragmented pair scenarios can be grouped into two broad categories. The first category encompasses circumstances like network partition, back-end service disruption, a busy server, the intern tripping over the power cable, fun stuff like that. In these circumstances the client has no way of knowing if the server was able to send a response, and if so, did the response get lost on the way to the client. In other words, the client can't tell the difference between the server crashing (no response was ever sent) and the server responded but the response was lost due to a network issue. From the client's perspective the response is **undefined**.
 
 There is little the client telemetry agent can do when the response is undefined. For the sake of argument let's assume the server was able to respond but the response never arrived at the client due to a network partition. Ostensibly, Application Insights could correlate the client's request with the server response **after the fact** because ultimately Application Insights has visibility into both sides. Even so, we must consider the response undefined because the response never reached the client. At the time of the request the client was left holding the bag. The client telemetry agent is forced to record the request as a failure and assign a result code of 0 as a way to signal that the response was undefined.
 
@@ -26,7 +28,7 @@ As you may have surmise, there is a key difference between the first and second 
 
 ## Back to the problem at hand 
 
-To recap, the server side failures is showing nothing out of the ordinary but the client side failures is showing a large number of failed request with a result code of 0. After drilling into the logs we discover that the vast majority of client side exceptions are attributed to an autocomplete search. Our intuition is telling us that perhaps these failed request are being deliberately aborted by the client. A quick glance at the client code confirms that the client is in fact aborting autocomplete queries when they are no longer necessary. Because we know the client is aborting request we can safely assume that some percentage of the reportedly failed request are false positives (aborted request). Problem solved, right? Not so fast.
+To recap, the server side failures dashboard is showing nothing out of the ordinary but the client side is showing a large number of failed request with a result code of 0. After drilling into the logs we discover that the vast majority of client side exceptions are attributed to an autocomplete search. Our intuition is telling us that perhaps these failed request are being deliberately aborted by the client. A quick glance at the client code confirms that the client is in fact aborting autocomplete queries when the response is no longer relevant. Because we know the client is aborting request we can safely assume that some percentage of the reportedly failed request are false positives (aborted request). Problem solved, right? Not so fast.
 
 The client telemetry agent can't tell the difference between an aborted request and an undefined response. The client telemetry agent simply doesn't understand the context of the request, how could it? So it does the only sensible thing, it records aborted request and undefined responses the same way, as dependency failures with a result code of 0. 
 
@@ -42,16 +44,13 @@ What this means for us is that we can't rule out that the client is not experien
 > * You want to include other custom dimensions.
 
 ## The solution
-In order to discern between deliberately aborted requests and undefined responses we will need to enrich the telemetry logs with enough information to tell them apart. The solution comes in two parts: what information do we need to add to the telemetry logs and how exactly do we ago about adding said information to the telemetry logs.  
+In order to discern between deliberately aborted requests and undefined responses we will need to enrich the telemetry logs with enough information to tell them apart. The solution comes in two parts: what information must be added to the telemetry logs and how exactly do we go about adding said information to the logs.  
 
-As for the 'what', we got that covered. The XHR (XMLHttpRequest) object exposes an aptly named attributed called [aborted](https://www.w3.org/TR/XMLHttpRequest1/#dom-xmlhttprequest-send). The fetch api does not expose an aborted attribute directly but equivalent functionality is provided by the [AbortControl](https://developer.mozilla.org/en-US/docs/Web/API/AbortController) interface.
+As for the 'what', we got that covered. The XHR (XMLHttpRequest) object exposes an aptly named attributed called [aborted](https://www.w3.org/TR/XMLHttpRequest1/#dom-xmlhttprequest-send). The fetch API does not expose an aborted attribute directly but equivalent functionality is provided by the [AbortControl](https://developer.mozilla.org/en-US/docs/Web/API/AbortController) interface.
 
-As for the 'how', it's Application Insights to the rescue. In Application Insights parlance, the XHR and fetch request are referred to as dependencies. The Application Insights javascript SDK provides callback functions that are called before and after a dependency is utilized. There are also callbacks available that are called before the telemetry record is sent to the telemetry collection point. The callbacks expose the necessary data and functionality to accomplish our goal. To learn more about these callbacks visit [ApplicationInsights-JS](https://github.com/microsoft/ApplicationInsights-JS).
+As for the 'how', it's Application Insights to the rescue. In Application Insights parlance, the XHR and fetch request are referred to as dependencies. The Application Insights javascript SDK provides callback functions that are called before and after a dependency is utilized and before the telemetry record is sent to the telemetry collection point. The callbacks expose the necessary data and functionality to accomplish our goal. To learn more about these callbacks visit [ApplicationInsights-JS](https://github.com/microsoft/ApplicationInsights-JS).
 
 ### The code
-
-> For the sake of brevity I am going to assume your app is already configured to use Applications Insights. If not, don't worry, it's easy. Here is a [guide](https://learn.microsoft.com/en-us/azure/azure-monitor/app/javascript?tabs=snippet#add-the-javascript-sdk).
-
 In this solution we will implement the following callbacks:
 * **Dependency Listener**
 * **Dependency Initializer**
@@ -66,7 +65,7 @@ The [Dependency Listener](https://github.com/microsoft/ApplicationInsights-JS#de
 > * Ability to get/set the properties used to generate the W3C traceparent header (traceId, spanId, traceFlags)
 > * Set values in the object context container for other listeners called after the current one, as well as this context object is also made available to all dependency initializers.
 
-The first and third bullet above are what we need for our solution. Access to the XHR instance and the init argument of the fetch api means we can inspect those objects to determine if the request was aborted. The capabilities offered by the third bullet allows us to bubble the information we need to the dependency initializers and eventually the telemetry initializer.
+The first and third bullet above are what we need for our solution. Access to the XHR instance and the init argument of the fetch API means we can inspect those objects to determine if the request was aborted. The capabilities offered by the third bullet allows us to pass the information we need to the dependency initializers and eventually the telemetry initializer.
 
 ```javascript
 sdk.addDependencyListener((dependencyDetails) => {
@@ -85,9 +84,9 @@ sdk.addDependencyListener((dependencyDetails) => {
 
 Things to note about the callback above:
 * The aborted property on the xhr.ajaxData object is an integer where as on the init.signal object it is a boolean. I am choosing to normalize the return value of the function as a boolean.
-* The logic to discern between an XHR and a fetch request is encapsulated in a function. There are three reasons for this choice.
+* The logic to discern between an XHR and a fetch request is encapsulated in a function. There are three reasons for this choice:
   * Plain old code encapsulation. To put it bluntly, the rest of the callback chain doesn't need to know how the aborted property is obtained.
-  * If we don't create the function at this stage we will need to bubble up both the XHR and the init objects further down the callback chain.
+  * If we don't create the function at this stage we will need to bubble up both the XHR and the init objects to the rest of the callback chain.
   * The actual HTTP request hasn't been made yet so if we were to observe the value of the aborted property the property would be undefined.
 
 #### Dependency Initializer
@@ -120,19 +119,19 @@ sdk.addTelemetryInitializer((envelope) => {
 
 Things to note about the code above:
 * We are only capturing the aborted property if the response code equals 0. This is simply an optimization so we don't call our custom isAborted function unnecessarily and we don't capture more data than we need.
-* I chose to replace the response code with a custom response code. The reason for replacing the response code is purely pragmatic. If we leave the response code as 0 the observability platform will consider these request as failed. Using a custom response code in the 200s range avoids that pesky issue and it also servers as a hint for folks unfamiliar with the application that there is a custom solution at play.
+* I chose to replace the response code with a custom response code. The reason for replacing the response code is purely pragmatic. If we leave the response code as 0 the observability platform will consider these request as failed dependencies. Using a custom response code in the 200s range avoids that pesky issue and it also servers as a hint for folks unfamiliar with the application that there is a custom solution at play.
 
 #### Putting it all together
-Our work here is done. The Application Insights SDK will call the callbacks and take care of pushing the enriched telemetry record to the collection endpoint. The dashboard on the Application Insights portal no longer show aborted request as failed dependencies and we can discern between aborted request and undefined responses.
+Our work here is done. The Application Insights SDK will call the callbacks and take care of pushing the enriched telemetry record to the collection endpoint. Now when we look at the Application Insights dashboards we no longer see a bunch of failed client dependencies. The dashboards reflect a true representation of the facts.
 
 ### Free Samples
-As part of this article I've included some sample code because I'm pretty sure the internet would break if I didn't include some code samples. The sample code is designed to illustrate three key scenarios, I encourage you to check them out. The three scenarios are implemented using both the XMLHttpRequest and fetch APIs, for a grand total of 6 samples. 
+As part of this article I've included some sample code because I'm pretty sure the internet would break if I didn't include some code samples. The samples are designed to illustrate three key scenarios: a successful request, an aborted request, and an undefined response. The three scenarios are implemented using the XMLHttpRequest API and the fetch API for a grand total of 6 samples. I encourage you to check them out.
 
-The sample code assumes you've already provision an [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview?) instance. You will need to provide your own connection string. Take a look at the index.html page where you will find a spot to provide your connection string and a simple user interface for the samples.
+The sample code assumes you've already provision an [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview?) instance. You will need to provide your own connection. Take a look at the index.html page in the provided source code where you will find a spot to enter your connection string ([snippet-based setup](https://learn.microsoft.com/en-us/azure/azure-monitor/app/javascript?tabs=snippet#add-the-javascript-sdk)) and a simple user interface for the samples.
 
-The front-end is written in vanilla javascript and HTML. The back-end is a barebones web server written in C#. If you need guidance on building and running a .Net app this [tutorial](https://dotnet.microsoft.com/en-us/learn/dotnet/hello-world-tutorial/intro) has you covered.
+The front-end is written in vanilla javascript and HTML. The back-end is a barebones web server written in C#. If you need guidance on how to build an run a .Net app this [tutorial](https://dotnet.microsoft.com/en-us/learn/dotnet/hello-world-tutorial/intro) has you covered.
 
-To see the demo in action build and run the app, open a browser, then visit http://localhost:5054/. You should see the following interface. Click the buttons, wait a few seconds, then visit the logs pane of your Application Insights instance on the Azure portal.
+To see the demo in action build and run the app, open a browser, then visit http://localhost:5000/. You should see the interface pictured below. Click the buttons, wait a few seconds, then visit the logs pane of your Application Insights instance on the Azure portal.
 
 ![Demo user interface](screenshots/ui.png)
 
@@ -154,4 +153,4 @@ Our last scenario is an undefined response. To simulate this scenario we will ca
 
 ## Parting thoughts
 
-Inaccurate telemetry data is wasteful at best and causes apathy at worst. Always ensure your observability solution is providing accurate data and actionable insights. If your observability platform is not providing you with the information you need I encourage you to invest the resources necessary to make it so. 
+Inaccurate telemetry data is wasteful at best and causes apathy at worst. Always ensure your observability solution is providing accurate data and actionable insights. If your observability platform is not providing you with accurate information I encourage you to invest the resources necessary to make it so.

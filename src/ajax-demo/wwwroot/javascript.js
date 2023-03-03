@@ -52,7 +52,7 @@ document.addEventListener("DOMContentLoaded", (event) => {
     btnSuccessfulXHR.addEventListener('click', async () => {
         const xhr = new XMLHttpRequest();
         xhr.addEventListener("load", (e) => console.log(e.target.response));
-        xhr.open("GET", "/Delay?delayInSeconds=3");
+        xhr.open("GET", "/fastEndpoint");
         xhr.send();
     });
 
@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", (event) => {
     btnClientAbortXHR.addEventListener('click', async () => {
         let xhr = new XMLHttpRequest();
         xhr.addEventListener("load", (e) => console.log(e.target.response));
-        xhr.open("GET", "/Delay?delayInSeconds=3");
+        xhr.open("GET", "/slowEndpoint");
         xhr.send();
         // abort the call before it's completed at the server
         setTimeout(() => xhr.abort(), 1500); //abort in 1.5 seconds
@@ -72,14 +72,14 @@ document.addEventListener("DOMContentLoaded", (event) => {
     btnUndefinedResponseXHR.addEventListener('click', async () => {
         let xhr = new XMLHttpRequest();
         xhr.addEventListener("load", (e) => console.log(e.target.response));
-        xhr.open("GET", "/Abort?delayInSeconds=3");
+        xhr.open("GET", "/simulateUndefinedResp");
         xhr.send();
     });
 
 
     let btnSuccessfulFetch = document.getElementById('btnSuccessfulFetch');
     btnSuccessfulFetch.addEventListener('click', async () => {
-        await fetch('/Delay?delayInSeconds=3')
+        await fetch('/fastEndpoint')
             .then((response) => response.json())
             .then((data) => console.log(data));
     });
@@ -91,7 +91,7 @@ document.addEventListener("DOMContentLoaded", (event) => {
         // abort the call before it's completed at the server
         setTimeout(() => abortController.abort(), 1500); //abort in 1.5 seconds
 
-        await fetch('/Delay?delayInSeconds=3', {
+        await fetch('/slowEndpoint', {
             signal: abortController.signal
         })
             .then((response) => response.json())
@@ -101,7 +101,7 @@ document.addEventListener("DOMContentLoaded", (event) => {
 
     let btnUndefinedResponseFetch = document.getElementById('btnUndefinedResponseFetch');
     btnUndefinedResponseFetch.addEventListener('click', async () => {
-        await fetch('/Abort?delayInSeconds=3')
+        await fetch('/simulateUndefinedResp')
             .then((response) => response.json())
             .then((data) => console.log(data));
     });

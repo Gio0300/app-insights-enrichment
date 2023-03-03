@@ -119,7 +119,7 @@ sdk.addTelemetryInitializer((envelope) => {
 
 Things to note about the code above:
 * We are only capturing the aborted property if the response code equals 0. This is simply an optimization so we don't call our custom isAborted function unnecessarily and we don't capture more data than we need.
-* I chose to replace the response code with a custom response code. The reason for replacing the response code is purely pragmatic. If we leave the response code as 0 the observability platform will consider these request as failed dependencies. Using a custom response code in the 200s range avoids that pesky issue and it also servers as a hint for folks unfamiliar with the application that there is a custom solution at play.
+* I chose to replace the response code with a custom response code. The reason for replacing the response code is purely pragmatic. If we leave the response code as 0 the observability platform will consider these request as failed dependencies. Using a custom response code in the 200s range avoids that pesky issue and it also servers as a hint for folks unfamiliar with the application that there is a custom solution at play. If you decide to use a custom response code I would urge you to select a code from the [unassigned range](https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml).
 
 #### Putting it all together
 Our work here is done. The Application Insights SDK will call the callbacks and take care of pushing the enriched telemetry record to the collection endpoint. Now when we look at the Application Insights dashboards we no longer see a bunch of failed client dependencies. The dashboards reflect a true representation of the facts.
